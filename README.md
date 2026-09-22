@@ -1,4 +1,4 @@
-# Plexo
+# Plexorrent
 
 A fast download manager for Windows, macOS, and Linux that speeds up downloads by pulling chunks in parallel across **multiple network connections at the same time**.
 
