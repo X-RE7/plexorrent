@@ -13,6 +13,7 @@ import { IpcChannels } from '../../shared/ipc-channels'
 import type { IpcContract } from '../../shared/ipc-contract'
 import type { NetworkInterfaceInfo, ThemeSource } from '../../shared/types'
 import { DownloadManager } from '../download/downloadManager'
+import { TorrentManager } from '../download/torrentManager'
 import { getDefaultDownloadsDir, getHomeDir } from '../download/paths'
 import { probeUrl } from '../download/probe'
 import { deviceBindingSupported } from '../network/deviceBinding'
@@ -72,6 +73,11 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     refreshInterfaces
   )
 
+  const torrentManager = new TorrentManager(
+    getWindow,
+    (id) => cachedInterfaces.find((iface) => iface.id === id)
+  )
+
   handle('listInterfaces', refreshInterfaces)
 
   handle('pingInterfaces', async () => measureLatencies(cachedInterfaces))
@@ -124,7 +130,13 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
   handle('chooseSourceFile', async () => {
     const window = getWindow()
     if (!window) return null
-    const result = await dialog.showOpenDialog(window, { properties: ['openFile'] })
+    const result = await dialog.showOpenDialog(window, {
+      properties: ['openFile'],
+      filters: [
+        { name: 'Torrent & Supported Files', extensions: ['torrent'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    })
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
   })
@@ -135,25 +147,54 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     shell.showItemInFolder(filePath)
   })
 
-  handle('startDownload', async (_event, request) => manager.start(request))
+  handle('startDownload', async (_event, request) => {
+    if (
+      request.isTorrent ||
+      request.url.startsWith('magnet:?') ||
+      request.url.toLowerCase().endsWith('.torrent')
+    ) {
+      return torrentManager.start(request)
+    }
+    return manager.start(request)
+  })
 
   handle('startSimulatedDownload', async (_event, request) => manager.startSimulated(request))
 
-  handle('getCurrentDownload', async () => manager.getCurrentDownload())
+  handle('getCurrentDownload', async () => {
+    const torrentDownload = torrentManager.getCurrentDownload()
+    if (torrentDownload) return torrentDownload
+    return manager.getCurrentDownload()
+  })
 
   handle('pauseDownload', async (_event, id) => {
+    if (torrentManager.isActive()) {
+      await torrentManager.pause()
+      return
+    }
     await manager.pause(id)
   })
 
   handle('resumeDownload', async (_event, id) => {
+    if (torrentManager.getCurrentDownload()?.status === 'paused') {
+      torrentManager.resume()
+      return
+    }
     manager.resume(id)
   })
 
   handle('cancelDownload', async (_event, id) => {
+    if (torrentManager.getCurrentDownload()) {
+      torrentManager.cancel()
+      return
+    }
     manager.cancel(id)
   })
 
   handle('removeDownload', async (_event, id) => {
+    if (torrentManager.getCurrentDownload()) {
+      torrentManager.remove()
+      return
+    }
     manager.remove(id)
   })
 

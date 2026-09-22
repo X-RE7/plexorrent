@@ -1,7 +1,7 @@
 import { planDownload } from '@shared/plan'
 import type { ProbeResult } from '@shared/types'
 import { cn } from 'cn'
-import { AlertTriangle, ClipboardPaste } from 'lucide-react'
+import { AlertTriangle, ClipboardPaste, FileUp } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NetworkCard } from '../components/NetworkCard'
 import { ScreenFooter } from '../components/ScreenFooter'
@@ -87,7 +87,9 @@ export function IdleScreen(): React.JSX.Element {
   }, [url])
 
   const ready = probe.status === 'ready' ? probe.result : null
-  const multiChunkAllowed = ready !== null && ready.supportsRanges && ready.totalBytes !== null
+  const multiChunkAllowed =
+    ready !== null &&
+    (Boolean(ready.isTorrent) || (ready.supportsRanges && ready.totalBytes !== null))
   const isSingleStreamOnly = ready !== null && !multiChunkAllowed
 
   const detectedIds = interfaces.map((iface) => iface.id)
@@ -119,7 +121,12 @@ export function IdleScreen(): React.JSX.Element {
   if (selectedInterfaceIds.length > 0) {
     footerParts.push(`${totalChunks} ${totalChunks === 1 ? 'stream' : 'parallel streams'}`)
   }
-  if (ready && ready.totalBytes !== null) footerParts.push(formatBytes(ready.totalBytes))
+  if (ready) {
+    if (ready.isTorrent) footerParts.push('BitTorrent')
+    if (ready.totalBytes !== null && ready.totalBytes > 0) {
+      footerParts.push(formatBytes(ready.totalBytes))
+    }
+  }
 
   const handleToggleInterface = (id: string): void => {
     if (isSingleStreamOnly) {
@@ -153,6 +160,11 @@ export function IdleScreen(): React.JSX.Element {
     if (text.trim()) setUrl(text.trim())
   }
 
+  const handleChooseTorrent = async (): Promise<void> => {
+    const chosen = await window.plexo.chooseSourceFile()
+    if (chosen) setUrl(chosen)
+  }
+
   const handleStart = async (): Promise<void> => {
     if (probe.status !== 'ready' || !canStart) return
     setStarting(true)
@@ -168,7 +180,8 @@ export function IdleScreen(): React.JSX.Element {
         chunkCount: totalChunks,
         connectionsPerNetwork,
         etag: probe.result.etag,
-        lastModified: probe.result.lastModified
+        lastModified: probe.result.lastModified,
+        isTorrent: probe.result.isTorrent
       })
     } catch (error) {
       setStartError(describeError(error))
@@ -191,14 +204,25 @@ export function IdleScreen(): React.JSX.Element {
               LINK
             </div>
             <input
-              type="url"
+              type="text"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
-              placeholder="https://"
+              placeholder="https:// or magnet:?"
               spellCheck={false}
               aria-labelledby="idle-link-label"
               className="min-w-0 flex-1 rounded-[3px] border-none bg-transparent font-mono text-[13px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             />
+            <Button
+              type="button"
+              variant="secondary"
+              size="xs"
+              onClick={handleChooseTorrent}
+              className="shrink-0 font-mono text-[9.5px] uppercase tracking-wide"
+              title="Select a .torrent file from disk"
+            >
+              <FileUp data-icon="inline-start" />
+              .torrent
+            </Button>
             <Button
               type="button"
               variant="secondary"

@@ -1,8 +1,18 @@
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
-import { URL } from 'node:url'
+import { basename } from 'node:path'
+import { fileURLToPath, URL } from 'node:url'
 import type { ProbeResult } from '../../shared/types'
 import { testKnobs } from '../testKnobs'
+
+async function parseTorrentData(input: unknown): Promise<Record<string, unknown>> {
+  const dynamicImport = new Function('specifier', 'return import(specifier)')
+  const mod = await dynamicImport('parse-torrent')
+  const parse = mod.default || mod
+  return (await parse(input)) as Record<string, unknown>
+}
 
 const MAX_REDIRECTS = 5
 const USER_AGENT = 'Plexo/1.0'
@@ -121,6 +131,49 @@ async function requestFollowingRedirects(
 }
 
 export async function probeUrl(rawUrl: string): Promise<ProbeResult> {
+  const trimmed = rawUrl.trim()
+  if (trimmed.startsWith('magnet:?')) {
+    const parsed = await parseTorrentData(trimmed)
+    const name =
+      (typeof parsed.name === 'string' && parsed.name) ||
+      (typeof parsed.dn === 'string' && parsed.dn) ||
+      'Torrent Download'
+    return {
+      requestedUrl: rawUrl,
+      finalUrl: rawUrl,
+      supportsRanges: true,
+      totalBytes: typeof parsed.length === 'number' ? parsed.length : 0,
+      suggestedFileName: name,
+      contentType: 'application/x-bittorrent',
+      etag: null,
+      lastModified: null,
+      isTorrent: true,
+      torrentInfoHash: typeof parsed.infoHash === 'string' ? parsed.infoHash : undefined
+    }
+  }
+
+  if (
+    trimmed.toLowerCase().endsWith('.torrent') &&
+    (existsSync(trimmed) || trimmed.startsWith('file://'))
+  ) {
+    const filePath = trimmed.startsWith('file://') ? fileURLToPath(trimmed) : trimmed
+    const buf = await readFile(filePath)
+    const parsed = await parseTorrentData(buf)
+    return {
+      requestedUrl: rawUrl,
+      finalUrl: filePath,
+      supportsRanges: true,
+      totalBytes: typeof parsed.length === 'number' ? parsed.length : 0,
+      suggestedFileName:
+        (typeof parsed.name === 'string' && parsed.name) || basename(filePath, '.torrent'),
+      contentType: 'application/x-bittorrent',
+      etag: null,
+      lastModified: null,
+      isTorrent: true,
+      torrentInfoHash: typeof parsed.infoHash === 'string' ? parsed.infoHash : undefined
+    }
+  }
+
   const { current, response } = await requestFollowingRedirects(rawUrl)
 
   // An empty file can't satisfy a request for its first byte: the server answers 416 and gives

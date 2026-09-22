@@ -24,6 +24,8 @@ export interface ProbeResult {
   /** Strong validators, used to detect if the remote content changes between pause and resume. */
   etag: string | null
   lastModified: string | null
+  isTorrent?: boolean
+  torrentInfoHash?: string
 }
 
 export type DownloadStatus =
@@ -98,6 +100,8 @@ export interface DownloadState {
    * files are already all complete at that point, so this tracks the sequential reassembly step
    * rather than the network transfer. */
   assembledBytes?: number
+  isTorrent?: boolean
+  peersCount?: number
 }
 
 /** User customization for one physical network, keyed by NetworkInterfaceInfo.id — lets a
@@ -170,4 +174,5 @@ export interface StartDownloadRequest {
   connectionsPerNetwork?: number
   etag: string | null
   lastModified: string | null
+  isTorrent?: boolean
 }

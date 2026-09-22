@@ -25,6 +25,9 @@ export default defineConfig({
         '@shared': resolve('src/shared')
       }
     },
+    optimizeDeps: {
+      exclude: ['webtorrent', 'parse-torrent']
+    },
     plugins: [react(), tailwindcss()]
   }
 })
